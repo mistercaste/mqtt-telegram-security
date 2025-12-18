@@ -23,7 +23,7 @@ def on_connect(client, userdata, flags, rc, properties=None):
 
 def on_message(client, userdata, msg):
     payload = msg.payload.decode()
-    message_text = f"MQTT Topic: {msg.topic}\nMessage: {payload}"
+    message_text = f"Topic: {msg.topic}\nMessage: {payload}"
     print(f"INFO - Message received: {payload}")
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message_text, parse_mode='Markdown')

@@ -15,7 +15,7 @@ services:
       - MQTT_TOPIC=security/#    # Monitors all sub-topics of security
 ```
 
-## Test
+## Testing MQTT
 You can test the setup by sending a manual message to the MQTT broker:
 ```
 mosquitto_pub -h localhost -t "security/vulnerabilities" -m "Test: Found exploit CVE-2023-XXXX"

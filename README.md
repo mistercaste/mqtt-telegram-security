@@ -50,9 +50,22 @@ mosquitto_pub \
         -u ${MQTT_USERNAME} \                                                                                                               
         -P ${MQTT_PASSWORD} \                                                                                                               
         -t "telegram/output" \                                                                                                
-        -m "MQTT to Telegram works fine!" # If this is a LINK to an image file, such an image will be sent to Telegram 
+        -m "MQTT to Telegram works fine!"
 ```
-If everything works fine, you should receive a message in your phone's Telegram.
+If everything works fine, you should receive a text message in your phone's Telegram.
+
+### MQTT to Telegram (images)
+If the manual message sent to the MQTT broker contains an URL to an image, like below:
+```
+mosquitto_pub \                                                                                                                        
+        -h ${MQTT_SERVER} \                                                                                                                 
+        -p 1883 \                                                                                                                      
+        -u ${MQTT_USERNAME} \                                                                                                               
+        -P ${MQTT_PASSWORD} \                                                                                                               
+        -t "telegram/output" \                                                                                                
+        -m "https://www.google.com/images/branding/googlelogo/1x/googlelogo_white_background_color_272x92dp.png"
+```
+Then you should receive such an image your phone's Telegram (also mentioning the topic sharing it).
 
 ### Telegram to MQTT
 To test the other direction, please run the command below, and write something in your Telegram Bot:

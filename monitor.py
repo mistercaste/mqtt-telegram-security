@@ -4,6 +4,8 @@ import paho.mqtt.client as mqtt
 from paho.mqtt.enums import CallbackAPIVersion
 import threading
 import re
+import requests  # To download the image locally
+import io        # To handle data in memory
 
 # Environment variables
 TOKEN = os.getenv('TELEGRAM_TOKEN')
@@ -34,19 +36,24 @@ def on_connect(client, userdata, flags, rc, properties=None):
 def on_message(client, userdata, msg):
     payload = msg.payload.decode().strip()
     print(f"INFO - From MQTT [{msg.topic}]: {payload}")
-
     try:
         # If the MQTT payload contains a link to an image
         if IMAGE_URL_PATTERN.match(payload):
             caption = f"Topic: {msg.topic}"
-            bot.send_photo(CHAT_ID, payload, caption=caption, parse_mode='Markdown')
-            print(f"INFO - Image sent to Telegram")
+            
+            print(f"INFO - Loading image . . .")
+            response = requests.get(payload, timeout=10)
+            if response.status_code == 200:
+                photo = io.BytesIO(response.content)
+                photo.name = 'snapshot.jpg'
+                bot.send_photo(CHAT_ID, photo, caption=caption)
+                print(f"INFO - Image sent successfully")
+            else:
+                print(f"ERROR - Impossible to download local image: {response.status_code}")
         else:
-            # If the MQTT payload is plain text
             message_text = f"Topic: {msg.topic}\nMessage: {payload}"
             bot.send_message(CHAT_ID, message_text, parse_mode='Markdown')
-            print(f"INFO - Message sent to Telegram")
-            
+            print(f"INFO - Message sent to Telegram")            
     except Exception as e:
         print(f"ERROR - Impossible to send to Telegram: {e}")
 

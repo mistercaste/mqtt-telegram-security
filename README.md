@@ -1,5 +1,5 @@
 # mqtt-to-telegram
-A container reacting to a topic on MQTT by pushing a notification to Telegram.
+A container providing full-duplex communication between MQTT (topics) and Telegram.
 
 ## Telegram BOT
 To allow the container connecting to your Telegram, you need to get some references from the communication app.
@@ -31,20 +31,35 @@ Important: Now open a chat with your new bot (the one you created in step 1) and
       - TELEGRAM_CHAT_ID=your_chat_id
       - MQTT_BROKER=192.168...
       - MQTT_PORT=1883
-      - MQTT_TOPIC=telegram/#    # Monitors all sub-topics
+      - MQTT_TOPIC_OUTPUT=telegram/output/#    # Monitors all sub-topics
+      - MQTT_TOPIC_INPUT=telegram/input/#    # Monitors all sub-topics
       - MQTT_USER=my_username
       - MQTT_PASS=********
 ```
 
 ## Testing MQTT
-You can test the setup by sending a manual message to the MQTT broker (remember to `apt install mosquitto-clients`)
-```
-mosquitto_pub \                                                                                                                        
-        -h ${SERVER} \                                                                                                                 
-        -p 1883 \                                                                                                                      
-        -u ${USERNAME} \                                                                                                               
-        -P ${PASSWORD} \                                                                                                               
-        -t "telegram/helloworld" \                                                                                                
-        -m "Your installation of mqtt-to-telegram works!" 
-```
-If everything works fine, you should receive a message in your phone's Telegram.
+In order to test from the command line your setup, you will need to `apt install mosquitto-clients`.
+
+A. To test the setup by sending a manual message to the MQTT broker, run:
+ ```
+ mosquitto_pub \                                                                                                                        
+         -h ${SERVER} \                                                                                                                 
+         -p 1883 \                                                                                                                      
+         -u ${USERNAME} \                                                                                                               
+         -P ${PASSWORD} \                                                                                                               
+         -t "telegram/output/helloworld" \                                                                                                
+         -m "Your installation of mqtt-to-telegram works!" 
+ ```
+ If everything works fine, you should receive a message in your phone's Telegram.
+
+B. To test the other direction, please run the command below, and write something in your Telegram Bot:
+ ```
+ mosquitto_sub \                                                                                                                        
+         -h ${SERVER} \                                                                                                                 
+         -p 1883 \                                                                                                                      
+         -u ${USERNAME} \                                                                                                               
+         -P ${PASSWORD} \                                                                                                               
+         -t "telegram/input/"
+ ```
+ If everything works fine, you should read your Telegram message in the topic-subscriber.
+

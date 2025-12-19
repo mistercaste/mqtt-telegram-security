@@ -53,8 +53,13 @@ def on_message(client, userdata, msg):
                 # Use BytesIO to load the image in memory
                 with io.BytesIO(response.content) as photo_buffer:
                     photo_buffer.name = f"snapshot.{ext}"                    
-                    bot.send_photo(CHAT_ID, photo_buffer, caption=caption)
-                    print(f"INFO - Immagine {photo_buffer.name} inviata con successo")            
+                    # If GIF sends as animation, to keep it dynamic
+                    if ext == 'gif':
+                        bot.send_animation(CHAT_ID, photo_buffer, caption=caption)
+                        print(f"INFO - GIF sent")
+                    else:
+                        bot.send_photo(CHAT_ID, photo_buffer, caption=caption)
+                        print(f"INFO - Image {photo_buffer.name} sent")
             # Note on memory usage: once outside the 'with' the buffer gets automatically garbage collected                
         else:
             message_text = f"Topic: {msg.topic}\nMessage: {payload}"

@@ -45,12 +45,12 @@ Please install it with `apt install mosquitto-clients`.
 To test the setup by sending a manual message to the MQTT broker, run:
 ```
 mosquitto_pub \                                                                                                                        
-        -h ${SERVER} \                                                                                                                 
+        -h ${MQTT_SERVER} \                                                                                                                 
         -p 1883 \                                                                                                                      
-        -u ${USERNAME} \                                                                                                               
-        -P ${PASSWORD} \                                                                                                               
-        -t "telegram/output/helloworld" \                                                                                                
-        -m "Your installation of mqtt-to-telegram works!" 
+        -u ${MQTT_USERNAME} \                                                                                                               
+        -P ${MQTT_PASSWORD} \                                                                                                               
+        -t "telegram/output" \                                                                                                
+        -m "MQTT to Telegram works fine!" 
 ```
 If everything works fine, you should receive a message in your phone's Telegram.
 
@@ -58,10 +58,10 @@ If everything works fine, you should receive a message in your phone's Telegram.
 To test the other direction, please run the command below, and write something in your Telegram Bot:
 ```
 mosquitto_sub \                                                                                                                        
-        -h ${SERVER} \                                                                                                                 
+        -h ${MQTT_SERVER} \                                                                                                                 
         -p 1883 \                                                                                                                      
-        -u ${USERNAME} \                                                                                                               
-        -P ${PASSWORD} \                                                                                                               
-        -t "telegram/input/"
+        -u ${MQTT_USERNAME} \                                                                                                               
+        -P ${MQTT_PASSWORD} \                                                                                                               
+        -t "telegram/input"
 ```
-If everything works fine, you should read your Telegram message in the topic-subscriber.
+If everything works fine, you should read your Telegram message in the topic-subscriber, and have a message `Sent to telegram/input` in your Telegram chat.

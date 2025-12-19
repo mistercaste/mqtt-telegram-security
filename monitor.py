@@ -23,14 +23,6 @@ def on_connect(client, userdata, flags, rc, properties=None):
     else:
         print(f"ERROR - Connection to MQTT failed: {rc}")
 
-# Initialization of MQTT client
-mqtt_client = mqtt.Client(callback_api_version=CallbackAPIVersion.VERSION2)
-if MQTT_USER and MQTT_PASS:
-    mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
-
-mqtt_client.on_connect = on_connect
-mqtt_client.on_message = on_message
-
 # From MQTT to Telegram
 def on_message(client, userdata, msg):
     payload = msg.payload.decode()
@@ -40,6 +32,14 @@ def on_message(client, userdata, msg):
         bot.send_message(CHAT_ID, message_text, parse_mode='Markdown')
     except Exception as e:
         print(f"ERROR - An error occurred while contacting Telegram: {e}")
+
+# Initialization of MQTT client
+mqtt_client = mqtt.Client(callback_api_version=CallbackAPIVersion.VERSION2)
+if MQTT_USER and MQTT_PASS:
+    mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
+
+mqtt_client.on_connect = on_connect
+mqtt_client.on_message = on_message
 
 # From Telegram to MQTT
 @bot.message_handler(func=lambda message: True)

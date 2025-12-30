@@ -20,7 +20,10 @@ MQTT_TOPIC_INPUT = os.getenv('MQTT_TOPIC_INPUT', 'telegram/input')
 bot = telebot.TeleBot(TOKEN)
 
 # Regex to match image names URLs
-IMAGE_URL_PATTERN = re.compile(r'^https?://.*\.(jpg|jpeg|png|gif|webp)(\?.*)?$', re.IGNORECASE)
+IMAGE_URL_PATTERN = re.compile(
+    r'^https?://[^/]+(?::\d+)?/.*\.(jpg|jpeg|png|gif|webp)(\?.*)?$',
+    re.IGNORECASE
+)
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:

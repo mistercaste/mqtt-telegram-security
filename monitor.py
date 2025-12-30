@@ -6,8 +6,6 @@ import threading
 import re
 import requests
 import io
-import json
-import datetime
 
 # ============================================================
 # ENVIRONMENT VARIABLES
@@ -31,39 +29,9 @@ MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
 MQTT_USER = os.getenv("MQTT_USER")
 MQTT_PASS = os.getenv("MQTT_PASS")
 MQTT_TOPICS_OUTPUT = os.getenv(
-    "MQTT_TOPICS_OUTPUT", "telegram/output/#,esp32/#"
+    "MQTT_TOPICS_OUTPUT", "telegram/output/#,mt32/#"
 ).split(",")
 MQTT_TOPIC_INPUT = os.getenv("MQTT_TOPIC_INPUT", "telegram/input")
-
-# ============================================================
-# AUDIT LOG CONFIGURATION
-# ============================================================
-
-AUDIT_LOG_ENABLED = os.getenv("AUDIT_LOG_ENABLED", "false").lower() == "true"
-AUDIT_LOG_PATH = os.getenv("AUDIT_LOG_PATH", "audit.log")
-AUDIT_LOG_LOCK = threading.Lock()
-
-def audit_log(event_type: str, **fields):
-    """
-    Write structured audit logs in JSON format.
-    Logging is skipped if AUDIT_LOG_ENABLED is False.
-    """
-    if not AUDIT_LOG_ENABLED:
-        return
-
-    record = {
-        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
-        "event": event_type,
-        **fields,
-    }
-
-    try:
-        with AUDIT_LOG_LOCK:
-            with open(AUDIT_LOG_PATH, "a", encoding="utf-8") as f:
-                f.write(json.dumps(record, ensure_ascii=False) + "\n")
-    except Exception as e:
-        # Audit logging must NEVER crash the application
-        print(f"ERROR - Audit log failure: {e}")
 
 # ============================================================
 # TELEGRAM BOT INITIALIZATION
@@ -125,13 +93,6 @@ def on_connect(client, userdata, flags, rc, properties=None):
         print(f"ERROR - MQTT connection failed (rc={rc})")
 
 def on_message(client, userdata, msg):
-
-    audit_log(
-        "mqtt_message_received",
-        topic=msg.topic,
-        payload_length=len(payload),
-    )
-
     """
     Forward MQTT messages to Telegram.
     This path is NOT exposed to Telegram users.
@@ -167,12 +128,6 @@ def on_message(client, userdata, msg):
                             caption=caption,
                         )
 
-            audit_log(
-                "telegram_message_sent",
-                topic=msg.topic,
-                message_type="image" if match else "text",
-            )
-
             print("INFO - Image sent to Telegram")
 
         else:
@@ -205,35 +160,16 @@ mqtt_client.on_message = on_message
 
 @bot.message_handler(func=lambda message: True)
 def handle_telegram_message(message):
-
-    user_id = message.from_user.id if message.from_user else None
-
+    # SECURITY GATE: nothing happens before this check
     if not is_authorized(message):
-        audit_log(
-            "telegram_access_denied",
-            user_id=user_id,
-            chat_id=message.chat.id,
-            chat_type=message.chat.type,
-            message_length=len(message.text or ""),
+        print(
+            f"SECURITY - Unauthorized access attempt from "
+            f"{message.from_user.id if message.from_user else 'UNKNOWN'}"
         )
         return
 
-    audit_log(
-        "telegram_access_granted",
-        user_id=user_id,
-        chat_id=message.chat.id,
-    )
-
     payload = message.text or ""
     result = mqtt_client.publish(MQTT_TOPIC_INPUT, payload)
-
-    audit_log(
-        "mqtt_publish_attempt",
-        user_id=user_id,
-        topic=MQTT_TOPIC_INPUT,
-        success=(result.rc == mqtt.MQTT_ERR_SUCCESS),
-        payload_length=len(payload),
-    )
 
     if result.rc == mqtt.MQTT_ERR_SUCCESS:
         bot.reply_to(message, f"Sent to `{MQTT_TOPIC_INPUT}`")

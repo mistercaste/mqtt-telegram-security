@@ -19,6 +19,12 @@ The bot needs to know who to send messages to. The `Chat ID` is the unique numer
 
 Important: Now open a chat with your new bot (the one you created in step 1) and click **"Start"** If you don't start it, the bot won't have permission to message you.
 
+### Security features
+The application provides:
+- Strict access to a Telegram list of User IDs (comma-separated)
+- Telegram notifications when an unauthorized user tries to connect (`TELEGRAM_SECURITY_ALERT_CHANNEL=true`)
+- Limited message rates. Default: 5 messages every 10 seconds from a single user
+
 ## Docker Compose
 ```                                                                            
 # MQTT topics to Telegram (phone)                                                                                                             
@@ -28,15 +34,18 @@ Important: Now open a chat with your new bot (the one you created in step 1) and
     restart: unless-stopped
     network_mode: host                                                                                                           
     environment:                                                                                                                      
-      - TELEGRAM_TOKEN=your_token
-      - TELEGRAM_CHAT_ID=your_chat_id
-      - MQTT_BROKER=192.168...
+      - TELEGRAM_TOKEN=${SECURITY_TELEGRAM_TOKEN}
+      - TELEGRAM_ALLOWED_USER_IDS=${TELEGRAM_ALLOWED_USER_IDS_COMMA_SEPARATED}
+      - MQTT_BROKER=mqtt.home
       - MQTT_PORT=1883
-      - MQTT_USER=my_username
-      - MQTT_PASS=********
+      - MQTT_USER=${SECURITY_MQTT_USERNAME}
+      - MQTT_PASS=${SECURITY_LOW}
       - MQTT_TOPICS_OUTPUT=telegram/output/#,esp32/#    # Monitors multiple topics and their sub-topics
       - MQTT_TOPIC_INPUT=telegram/input/#    # Monitors all sub-topics
+      - RATE_LIMIT_MESSAGES=5
+      - RATE_LIMIT_WINDOW_SECONDS=10
       - LOG_LEVEL=INFO
+      - TELEGRAM_SECURITY_ALERT_CHANNEL=true
 ```
 
 ## Testing

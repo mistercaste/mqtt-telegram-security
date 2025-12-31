@@ -8,6 +8,7 @@ import requests
 import io
 import logging
 import sys
+import time
 
 # ------------------------------------------------------------------------------
 # Logging (Docker-friendly)
@@ -38,6 +39,7 @@ logger = get_logger("telegram-mqtt-bridge")
 # ------------------------------------------------------------------------------
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
+
 MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
 MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
 MQTT_USER = os.getenv("MQTT_USER")
@@ -55,10 +57,17 @@ ALLOWED_USER_IDS = {
     if uid.strip().isdigit()
 }
 
+# Rate limit config
+RATE_LIMIT_MESSAGES = int(os.getenv("RATE_LIMIT_MESSAGES", 5))
+RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", 10))
+
 logger.info(f"Authorized Telegram users: {sorted(ALLOWED_USER_IDS)}")
+logger.info(
+    f"Rate limit: {RATE_LIMIT_MESSAGES} messages / {RATE_LIMIT_WINDOW}s per user"
+)
 
 # ------------------------------------------------------------------------------
-# Safety check
+# Safety checks
 # ------------------------------------------------------------------------------
 
 if not TOKEN:
@@ -79,19 +88,52 @@ IMAGE_URL_PATTERN = re.compile(
 )
 
 # ------------------------------------------------------------------------------
-# Authorization helpers
+# Authorization + Rate limit
 # ------------------------------------------------------------------------------
+
+rate_limit_state = {}  # user_id -> {count, window_start}
+
+def is_rate_limited(user_id: int) -> bool:
+    now = time.time()
+    state = rate_limit_state.get(user_id)
+
+    if not state:
+        rate_limit_state[user_id] = {
+            "count": 1,
+            "window_start": now
+        }
+        return False
+
+    elapsed = now - state["window_start"]
+
+    if elapsed > RATE_LIMIT_WINDOW:
+        # reset window
+        rate_limit_state[user_id] = {
+            "count": 1,
+            "window_start": now
+        }
+        return False
+
+    if state["count"] >= RATE_LIMIT_MESSAGES:
+        return True
+
+    state["count"] += 1
+    return False
+
 
 def is_user_allowed(message) -> bool:
     if message.chat.type != "private":
-        logger.warning(
-            f"Blocked non-private chat | chat_type={message.chat.type}"
-        )
+        logger.warning(f"Blocked non-private chat | chat_type={message.chat.type}")
         return False
 
     user_id = message.from_user.id
+
     if user_id not in ALLOWED_USER_IDS:
         logger.warning(f"Unauthorized Telegram user blocked | user_id={user_id}")
+        return False
+
+    if is_rate_limited(user_id):
+        logger.warning(f"Rate limit exceeded | user_id={user_id}")
         return False
 
     return True
@@ -130,8 +172,6 @@ def on_message(client, userdata, msg):
             ext = match.group(1).lower()
             caption = f"Topic: {msg.topic}"
 
-            logger.info(f"Downloading image ({ext})")
-
             with requests.get(payload, timeout=15) as response:
                 response.raise_for_status()
 
@@ -144,14 +184,12 @@ def on_message(client, userdata, msg):
                             photo_buffer,
                             caption=caption
                         )
-                        logger.info("GIF sent to authorized users")
                     else:
                         send_to_allowed_users(
                             bot.send_photo,
                             photo_buffer,
                             caption=caption
                         )
-                        logger.info("Image sent to authorized users")
         else:
             message_text = f"Topic: {msg.topic}\nMessage: {payload}"
             send_to_allowed_users(
@@ -159,7 +197,6 @@ def on_message(client, userdata, msg):
                 message_text,
                 parse_mode="Markdown"
             )
-            logger.info("Text message sent to authorized users")
 
     except requests.exceptions.ConnectionError as e:
         logger.error(f"Connection error while downloading image: {e}")
@@ -176,7 +213,6 @@ mqtt_client = mqtt.Client(callback_api_version=CallbackAPIVersion.VERSION2)
 
 if MQTT_USER and MQTT_PASS:
     mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
-    logger.info("MQTT authentication enabled")
 
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_message
@@ -184,7 +220,6 @@ mqtt_client.on_message = on_message
 
 def run_mqtt():
     try:
-        logger.info("Starting MQTT loop")
         mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
         mqtt_client.loop_forever()
     except Exception:
@@ -218,7 +253,7 @@ def handle_telegram_message(message):
 # ------------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    logger.info("Starting Telegram ↔ MQTT secure bridge")
+    logger.info("Starting Telegram ↔ MQTT secure bridge with rate limiting")
 
     mqtt_thread = threading.Thread(target=run_mqtt, daemon=True)
     mqtt_thread.start()

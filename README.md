@@ -33,8 +33,9 @@ Important: Now open a chat with your new bot (the one you created in step 1) and
       - MQTT_PORT=1883
       - MQTT_USER=my_username
       - MQTT_PASS=********
-      - MQTT_TOPICS_OUTPUT=telegram/output/#,mt32/#    # Monitors multiple topics and their sub-topics
+      - MQTT_TOPICS_OUTPUT=telegram/output/#,esp32/#    # Monitors multiple topics and their sub-topics
       - MQTT_TOPIC_INPUT=telegram/input/#    # Monitors all sub-topics
+      - LOG_LEVEL=INFO
 ```
 
 ## Testing

@@ -10,9 +10,9 @@ import logging
 import sys
 import time
 
-# ------------------------------------------------------------------------------
+# ==============================================================================
 # Logging (Docker-friendly)
-# ------------------------------------------------------------------------------
+# ==============================================================================
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
@@ -31,12 +31,11 @@ def get_logger(name: str) -> logging.Logger:
     logger.propagate = False
     return logger
 
-
 logger = get_logger("telegram-mqtt-bridge")
 
-# ------------------------------------------------------------------------------
+# ==============================================================================
 # Environment variables
-# ------------------------------------------------------------------------------
+# ==============================================================================
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 
@@ -57,27 +56,26 @@ ALLOWED_USER_IDS = {
     if uid.strip().isdigit()
 }
 
-# Rate limit config
+# Rate limit
 RATE_LIMIT_MESSAGES = int(os.getenv("RATE_LIMIT_MESSAGES", 5))
 RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", 10))
+
+# Security alerts
+TELEGRAM_SECURITY_ALERT_CHANNEL = os.getenv(
+    "TELEGRAM_SECURITY_ALERT_CHANNEL", "false"
+).lower() in ("1", "true", "yes", "on")
 
 logger.info(f"Authorized Telegram users: {sorted(ALLOWED_USER_IDS)}")
 logger.info(
     f"Rate limit: {RATE_LIMIT_MESSAGES} messages / {RATE_LIMIT_WINDOW}s per user"
 )
-
-# Enable Telegram notification in case of attacks from unauthorized users (anything not true/1/yes/on will be considered false)
-TELEGRAM_SECURITY_ALERT_CHANNEL = os.getenv(
-    "TELEGRAM_SECURITY_ALERT_CHANNEL", "false"
-).lower() in ("1", "true", "yes", "on")
-
 logger.info(
     f"Telegram security alert channel enabled: {TELEGRAM_SECURITY_ALERT_CHANNEL}"
 )
 
-# ------------------------------------------------------------------------------
+# ==============================================================================
 # Safety checks
-# ------------------------------------------------------------------------------
+# ==============================================================================
 
 if not TOKEN:
     raise RuntimeError("TELEGRAM_TOKEN not set")
@@ -85,9 +83,9 @@ if not TOKEN:
 if not ALLOWED_USER_IDS:
     logger.warning("No authorized Telegram users configured — bot will be silent")
 
-# ------------------------------------------------------------------------------
+# ==============================================================================
 # Telegram bot
-# ------------------------------------------------------------------------------
+# ==============================================================================
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -96,31 +94,9 @@ IMAGE_URL_PATTERN = re.compile(
     re.IGNORECASE
 )
 
-# ------------------------------------------------------------------------------
-# Telegram notification function for security alerts
-# ------------------------------------------------------------------------------
-
-def send_security_alert(message: str):
-    if not TELEGRAM_SECURITY_ALERT_CHANNEL:
-        return
-
-    logger.warning(f"SECURITY ALERT SENT | {message}")
-
-    for user_id in ALLOWED_USER_IDS:
-        try:
-            bot.send_message(
-                user_id,
-                f"🚨 *SECURITY ALERT*\n{message}",
-                parse_mode="Markdown"
-            )
-        except Exception:
-            logger.exception(
-                f"Failed to send security alert | user_id={user_id}"
-            )
-
-# ------------------------------------------------------------------------------
-# Authorization + Rate limit
-# ------------------------------------------------------------------------------
+# ==============================================================================
+# Rate limit + Authorization
+# ==============================================================================
 
 rate_limit_state = {}  # user_id -> {count, window_start}
 
@@ -129,20 +105,13 @@ def is_rate_limited(user_id: int) -> bool:
     state = rate_limit_state.get(user_id)
 
     if not state:
-        rate_limit_state[user_id] = {
-            "count": 1,
-            "window_start": now
-        }
+        rate_limit_state[user_id] = {"count": 1, "window_start": now}
         return False
 
     elapsed = now - state["window_start"]
 
     if elapsed > RATE_LIMIT_WINDOW:
-        # reset window
-        rate_limit_state[user_id] = {
-            "count": 1,
-            "window_start": now
-        }
+        rate_limit_state[user_id] = {"count": 1, "window_start": now}
         return False
 
     if state["count"] >= RATE_LIMIT_MESSAGES:
@@ -150,6 +119,23 @@ def is_rate_limited(user_id: int) -> bool:
 
     state["count"] += 1
     return False
+
+
+def send_security_alert(message: str):
+    if not TELEGRAM_SECURITY_ALERT_CHANNEL:
+        return
+
+    logger.warning(f"SECURITY ALERT SENT | {message}")
+
+    for uid in ALLOWED_USER_IDS:
+        try:
+            bot.send_message(
+                uid,
+                f"🚨 *SECURITY ALERT*\n{message}",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            logger.exception(f"Failed to send security alert | user_id={uid}")
 
 
 def is_user_allowed(message) -> bool:
@@ -173,15 +159,15 @@ def is_user_allowed(message) -> bool:
 
 
 def send_to_allowed_users(send_func, *args, **kwargs):
-    for user_id in ALLOWED_USER_IDS:
+    for uid in ALLOWED_USER_IDS:
         try:
-            send_func(user_id, *args, **kwargs)
+            send_func(uid, *args, **kwargs)
         except Exception:
-            logger.exception(f"Failed sending Telegram message | user_id={user_id}")
+            logger.exception(f"Failed sending Telegram message | user_id={uid}")
 
-# ------------------------------------------------------------------------------
+# ==============================================================================
 # MQTT callbacks
-# ------------------------------------------------------------------------------
+# ==============================================================================
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
@@ -238,9 +224,9 @@ def on_message(client, userdata, msg):
     except Exception:
         logger.exception("Unexpected error while processing MQTT message")
 
-# ------------------------------------------------------------------------------
+# ==============================================================================
 # MQTT client
-# ------------------------------------------------------------------------------
+# ==============================================================================
 
 mqtt_client = mqtt.Client(callback_api_version=CallbackAPIVersion.VERSION2)
 
@@ -258,9 +244,9 @@ def run_mqtt():
     except Exception:
         logger.exception("MQTT loop error")
 
-# ------------------------------------------------------------------------------
+# ==============================================================================
 # Telegram → MQTT
-# ------------------------------------------------------------------------------
+# ==============================================================================
 
 @bot.message_handler(func=lambda message: True)
 def handle_telegram_message(message):
@@ -281,12 +267,12 @@ def handle_telegram_message(message):
             f"MQTT publish failed | user_id={message.from_user.id}"
         )
 
-# ------------------------------------------------------------------------------
+# ==============================================================================
 # Main
-# ------------------------------------------------------------------------------
+# ==============================================================================
 
 if __name__ == "__main__":
-    logger.info("Starting Telegram ↔ MQTT secure bridge with rate limiting")
+    logger.info("Starting Telegram ↔ MQTT secure bridge (rate-limit + alerts enabled)")
 
     mqtt_thread = threading.Thread(target=run_mqtt, daemon=True)
     mqtt_thread.start()

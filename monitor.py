@@ -10,7 +10,7 @@ import logging
 import sys
 
 # ------------------------------------------------------------------------------
-# Logging configuration (Docker-friendly: stdout)
+# Logging (Docker-friendly)
 # ------------------------------------------------------------------------------
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -18,17 +18,14 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 def get_logger(name: str) -> logging.Logger:
     logger = logging.getLogger(name)
     if logger.handlers:
-        return logger  # Prevent duplicate handlers
+        return logger
 
     logger.setLevel(LOG_LEVEL)
-
     handler = logging.StreamHandler(sys.stdout)
     formatter = logging.Formatter(
-        fmt="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
+        "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
     )
     handler.setFormatter(formatter)
-
     logger.addHandler(handler)
     logger.propagate = False
     return logger
@@ -40,20 +37,35 @@ logger = get_logger("telegram-mqtt-bridge")
 # Environment variables
 # ------------------------------------------------------------------------------
 
-TOKEN = os.getenv('TELEGRAM_TOKEN')
-CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-
-MQTT_BROKER = os.getenv('MQTT_BROKER', 'localhost')
-MQTT_PORT = int(os.getenv('MQTT_PORT', 1883))
-MQTT_USER = os.getenv('MQTT_USER')
-MQTT_PASS = os.getenv('MQTT_PASS')
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
+MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
+MQTT_USER = os.getenv("MQTT_USER")
+MQTT_PASS = os.getenv("MQTT_PASS")
 
 MQTT_TOPICS_OUTPUT = os.getenv(
-    'MQTT_TOPICS_OUTPUT',
-    'telegram/output/#,mt32/#'
-).split(',')
+    "MQTT_TOPICS_OUTPUT", "telegram/output/#"
+).split(",")
 
-MQTT_TOPIC_INPUT = os.getenv('MQTT_TOPIC_INPUT', 'telegram/input')
+MQTT_TOPIC_INPUT = os.getenv("MQTT_TOPIC_INPUT", "telegram/input")
+
+ALLOWED_USER_IDS = {
+    int(uid.strip())
+    for uid in os.getenv("TELEGRAM_ALLOWED_USER_IDS", "").split(",")
+    if uid.strip().isdigit()
+}
+
+logger.info(f"Authorized Telegram users: {sorted(ALLOWED_USER_IDS)}")
+
+# ------------------------------------------------------------------------------
+# Safety check
+# ------------------------------------------------------------------------------
+
+if not TOKEN:
+    raise RuntimeError("TELEGRAM_TOKEN not set")
+
+if not ALLOWED_USER_IDS:
+    logger.warning("No authorized Telegram users configured — bot will be silent")
 
 # ------------------------------------------------------------------------------
 # Telegram bot
@@ -61,11 +73,36 @@ MQTT_TOPIC_INPUT = os.getenv('MQTT_TOPIC_INPUT', 'telegram/input')
 
 bot = telebot.TeleBot(TOKEN)
 
-# Regex to match image URLs
 IMAGE_URL_PATTERN = re.compile(
-    r'^https?://.*\.(jpg|jpeg|png|gif|webp)(\?.*)?$',
+    r"^https?://.*\.(jpg|jpeg|png|gif|webp)(\?.*)?$",
     re.IGNORECASE
 )
+
+# ------------------------------------------------------------------------------
+# Authorization helpers
+# ------------------------------------------------------------------------------
+
+def is_user_allowed(message) -> bool:
+    if message.chat.type != "private":
+        logger.warning(
+            f"Blocked non-private chat | chat_type={message.chat.type}"
+        )
+        return False
+
+    user_id = message.from_user.id
+    if user_id not in ALLOWED_USER_IDS:
+        logger.warning(f"Unauthorized Telegram user blocked | user_id={user_id}")
+        return False
+
+    return True
+
+
+def send_to_allowed_users(send_func, *args, **kwargs):
+    for user_id in ALLOWED_USER_IDS:
+        try:
+            send_func(user_id, *args, **kwargs)
+        except Exception:
+            logger.exception(f"Failed sending Telegram message | user_id={user_id}")
 
 # ------------------------------------------------------------------------------
 # MQTT callbacks
@@ -73,18 +110,18 @@ IMAGE_URL_PATTERN = re.compile(
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
-        logger.info(f"Connected to MQTT broker: {MQTT_BROKER}:{MQTT_PORT}")
+        logger.info(f"Connected to MQTT broker {MQTT_BROKER}:{MQTT_PORT}")
         for topic in MQTT_TOPICS_OUTPUT:
             topic = topic.strip()
             client.subscribe(topic)
-            logger.info(f"Subscribed to topic: {topic}")
+            logger.info(f"Subscribed to MQTT topic: {topic}")
     else:
         logger.error(f"MQTT connection failed (rc={rc})")
 
 
 def on_message(client, userdata, msg):
     payload = msg.payload.decode(errors="ignore").strip()
-    logger.info(f"MQTT message received | topic={msg.topic} | payload={payload}")
+    logger.info(f"MQTT → Telegram | topic={msg.topic} | payload={payload}")
 
     try:
         match = IMAGE_URL_PATTERN.match(payload)
@@ -93,32 +130,46 @@ def on_message(client, userdata, msg):
             ext = match.group(1).lower()
             caption = f"Topic: {msg.topic}"
 
-            logger.info(f"Downloading image ({ext}) from URL")
+            logger.info(f"Downloading image ({ext})")
 
-            with requests.get(payload, timeout=15, stream=True) as response:
+            with requests.get(payload, timeout=15) as response:
                 response.raise_for_status()
 
                 with io.BytesIO(response.content) as photo_buffer:
                     photo_buffer.name = f"snapshot.{ext}"
 
-                    if ext == 'gif':
-                        bot.send_animation(CHAT_ID, photo_buffer, caption=caption)
-                        logger.info("GIF sent to Telegram")
+                    if ext == "gif":
+                        send_to_allowed_users(
+                            bot.send_animation,
+                            photo_buffer,
+                            caption=caption
+                        )
+                        logger.info("GIF sent to authorized users")
                     else:
-                        bot.send_photo(CHAT_ID, photo_buffer, caption=caption)
-                        logger.info(f"Image sent to Telegram ({photo_buffer.name})")
-
+                        send_to_allowed_users(
+                            bot.send_photo,
+                            photo_buffer,
+                            caption=caption
+                        )
+                        logger.info("Image sent to authorized users")
         else:
             message_text = f"Topic: {msg.topic}\nMessage: {payload}"
-            bot.send_message(CHAT_ID, message_text, parse_mode='Markdown')
-            logger.info("Text message sent to Telegram")
+            send_to_allowed_users(
+                bot.send_message,
+                message_text,
+                parse_mode="Markdown"
+            )
+            logger.info("Text message sent to authorized users")
 
+    except requests.exceptions.ConnectionError as e:
+        logger.error(f"Connection error while downloading image: {e}")
+    except requests.exceptions.Timeout:
+        logger.error("Timeout while downloading image")
     except Exception:
-        logger.exception("Error while processing MQTT message")
-
+        logger.exception("Unexpected error while processing MQTT message")
 
 # ------------------------------------------------------------------------------
-# MQTT client setup
+# MQTT client
 # ------------------------------------------------------------------------------
 
 mqtt_client = mqtt.Client(callback_api_version=CallbackAPIVersion.VERSION2)
@@ -139,15 +190,13 @@ def run_mqtt():
     except Exception:
         logger.exception("MQTT loop error")
 
-
 # ------------------------------------------------------------------------------
 # Telegram → MQTT
 # ------------------------------------------------------------------------------
 
 @bot.message_handler(func=lambda message: True)
 def handle_telegram_message(message):
-    if str(message.chat.id) != str(CHAT_ID):
-        logger.warning(f"Ignored message from unauthorized chat_id={message.chat.id}")
+    if not is_user_allowed(message):
         return
 
     payload = message.text
@@ -155,18 +204,21 @@ def handle_telegram_message(message):
 
     if result.rc == mqtt.MQTT_ERR_SUCCESS:
         bot.reply_to(message, f"Sent to `{MQTT_TOPIC_INPUT}`")
-        logger.info(f"Telegram message published to MQTT | topic={MQTT_TOPIC_INPUT}")
+        logger.info(
+            f"Telegram → MQTT | user_id={message.from_user.id} | topic={MQTT_TOPIC_INPUT}"
+        )
     else:
         bot.reply_to(message, "ERROR - Publishing to MQTT failed")
-        logger.error("Failed to publish Telegram message to MQTT")
-
+        logger.error(
+            f"MQTT publish failed | user_id={message.from_user.id}"
+        )
 
 # ------------------------------------------------------------------------------
 # Main
 # ------------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    logger.info("Starting Telegram ↔ MQTT bridge")
+    logger.info("Starting Telegram ↔ MQTT secure bridge")
 
     mqtt_thread = threading.Thread(target=run_mqtt, daemon=True)
     mqtt_thread.start()
